@@ -648,8 +648,37 @@ extern Void_t*     sbrk();
   sample version for pre-OSX macos.
 */
 
+static uint8_t *__sbrk_lua_heap_end = NULL;
+
+void* sbrk_lua(ptrdiff_t incr){
+  extern uint8_t _lua_end; /* Symbol defined in the linker script */
+  extern uint8_t _eAXIstack; /* Symbol defined in the linker script */
+  extern uint32_t _Min_Stack_Size; /* Symbol defined in the linker script */
+  const uint32_t stack_limit = (uint32_t)&_eAXIstack - (uint32_t)&_Min_Stack_Size;
+  const uint8_t *max_heap = (uint8_t *)stack_limit;
+  uint8_t *prev_heap_end;
+
+  /* Initialize heap end at first call */
+  if (NULL == __sbrk_lua_heap_end)
+  {
+    __sbrk_lua_heap_end = &_lua_end;
+  }
+
+  /* Protect heap from growing into the reserved MSP stack */
+  if (__sbrk_lua_heap_end + incr > max_heap)
+  {
+    errno = ENOMEM;
+    return (void *)-1;
+  }
+
+  prev_heap_end = __sbrk_lua_heap_end;
+  __sbrk_lua_heap_end += incr;
+
+  return (void *)prev_heap_end;
+}
+
 #ifndef MORECORE
-#define MORECORE sbrk
+#define MORECORE sbrk_lua
 #endif
 
 /*
@@ -698,6 +727,8 @@ extern Void_t*     sbrk();
   If you do not have mmap, operations involving very large chunks (1MB
   or so) may be slower than you'd like.
 */
+
+#define HAVE_MMAP 0
 
 #ifndef HAVE_MMAP
 #define HAVE_MMAP 1
@@ -766,6 +797,9 @@ extern Void_t*     sbrk();
   the actual value probably doesn't impact performance.
 */
 
+
+// FIXME hacking this in
+#define malloc_getpagesize 512
 
 #ifndef malloc_getpagesize
 
